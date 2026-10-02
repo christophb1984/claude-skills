@@ -1,6 +1,6 @@
 ---
 name: sapb1-assistant
-description: "SAP Business One (SAP B1 / B1) ERP assistant for consultants and integrators. Use for anything SAP Business One, even if the user only says \"B1\", \"SBO\", a table name (OINV, ORDR, OCRD, OITM), an object type number (\"ObjType 13\"), the DI API (SAPbobsCOM) or UDOs. Capabilities - (1) Object types: the object type number for a table or document, the table and key behind a number, objects by topic. (2) SQL / schema: verified SQL views and queries against a B1 company database from bundled B1 10.0 and 9.3 data dictionaries (tables, columns, indexes, valid values, parent links), and \"what table/field holds X\". (3) DI API development: generate and review C# against the DI API - connect, create/update documents and master data, services, transactions, errors, user-defined fields/tables/objects - from a bundled DI API 10.0 class and enum reference. More capabilities are added over time, so trigger on any SAP Business One question, casually phrased or not."
+description: "SAP Business One (SAP B1 / B1) ERP assistant for consultants and integrators. Use for anything SAP Business One, including \"B1\", \"SBO\", table names (OINV, ORDR, OCRD, OITM), object type numbers, the DI API (SAPbobsCOM), UDOs, or the Service Layer/OData. Capabilities - (1) Object types: number, table, key and topic lookup. (2) SQL/schema: verified queries against bundled B1 10.0 and 9.3 dictionaries. (3) DI API: generate and review C# for connection, business objects/services, transactions, errors and user-defined objects from the bundled DI API 10.0 reference. (4) Service Layer: OData v4 endpoints, login/session handling, CRUD/actions, query options, ETags, batch, SQLQueries and FP2602 webhook guidance from SAP documentation. Trigger on any SAP Business One question, casually phrased or not."
 compatibility: "Runtime needs file read + grep over the bundled references. Refreshing references needs web access to the source sites, curl, and Python 3.10+ (scripts/ for the schema and the DI API reference, a documented procedure for the object list); none of that is needed to answer questions."
 metadata:
   author: Francois Taljaard
@@ -23,9 +23,10 @@ Object type numbers, table names and key columns are exactly the things a model 
 | "what's the object type for X", "what is object type N", "which table / primary key is behind N", "list the objects for sales / inventory / banking", UDO or DI API work that needs an object number | § 3 Object types |
 | a view, query, report extract, "what table/field holds X", join, valid-value / status questions against B1 data | § 4 SQL / schema |
 | generate, **review** or fix **C# against the DI API** (`SAPbobsCOM`): connect, create/update an invoice, order, business partner or item, read errors, transactions, UDFs/UDTs/UDOs, "what does this DI API property/method do", an enum value, "audit / clean up my integration" | § 5 DI API |
+| Service Layer / REST / OData: login/session cookies, `/b1s/v2`, `$metadata`, entity reads/writes, actions, query options, paging, ETags, batch, `SQLQueries`, FP2602 webhooks, "review my Service Layer code" | § 6 Service Layer |
 | both — "build a view over sales orders and tell me the ObjType" | § 4, using § 3 for object numbers |
 
-Anything else (Service Layer or UI API code, version and upgrade questions, how-to procedures) is a planned
+Anything else (UI API code, version and upgrade questions, how-to procedures) is a planned
 capability, see `MAINTENANCE.md`. Say so, answer what you can with the caveat that it is not
 reference-backed, and note that the skill could be extended.
 
@@ -34,7 +35,7 @@ reference-backed, and note that the skill could be extended.
 - **Never write SQL or code that modifies B1 tables directly.** Direct writes bypass B1's business logic and
   corrupt integrity; the supported write paths are the application, the DI API and the Service Layer. Don't
   print the modifying statement even as an illustration of what not to run; describe it in words. **In the DI
-  API (§ 5) writes through its business objects and services ARE the correct path**, but `Recordset.DoQuery` is
+  API (§ 5) and Service Layer (§ 6), writes through the supported API ARE the correct path**, but `Recordset.DoQuery` is
   for reading only: never use it to change B1 data, and never invent an object number, enum value or member.
 - **Verify, then cite.** Quote the object number, table and key from `references/objects/object-types.md`
   and say that is where it came from. If a number or table isn't in the list, say it isn't in the list —
@@ -94,7 +95,7 @@ folder you chose. `references/dictionary/INDEX.md` has the sources, counts, the 
 4. **Join through the `->PARENT` links and index columns**, not by name similarity. A `->` link names the table
    a column refers to; it doesn't give the parent's key column, so confirm that against the parent file's
    first index. The links are the source's own mapping, not enforced foreign keys: don't join on `->ADP1`
-   (see § 6 Gotchas).
+   (see § 7 Gotchas).
 5. **Decode valid values from the bracketed `[…]` lists**, never from memory: status flags, document types,
    Y/N fields. Decode with CASE in the output and cite the values used in filters. Read the list on the exact
    table, since the same column name can carry different values on different tables. A column with no list,
@@ -139,7 +140,7 @@ this object library only, not the UI API, the Service Layer or DI Server. The re
 6. **Examples are SAP's, labelled by language.** Prefer a `C# example`; a `VB example` is a pattern to translate
    (and a few SAP-labelled "C#" samples are really VB). Translate VB types with the table in the guide § 9.
 7. **Deliver**: one ```csharp block, then a short note: which members and enums were verified in the reference,
-   what is still unverified (for example a 10.0-only member on a 9.3 client, or a later feature pack), and the environment caveats from § 6.
+   what is still unverified (for example a 10.0-only member on a 9.3 client, or a later feature pack), and the environment caveats from § 7.
    Offer a test plan or the matching read-only SQL (§ 4) as follow-ups.
 8. **Reviewing an existing project** ("review / audit / clean up my DI API code"): run the greps in
    `references/diapi/review-checklist.md` over the whole tree before reading files, verify each flagged member in
@@ -147,7 +148,35 @@ this object library only, not the UI API, the Service Layer or DI Server. The re
    Behaviours that look wrong but may be intended for the client go in a separate list to decide, not fix. For a
    restructuring, the guide § 12 describes a testable build-then-commit layout (practice, not SAP guidance).
 
-## 6. Gotchas (things a careful engineer still gets wrong)
+## 6. Service Layer (REST / OData v4)
+
+Generate or review integrations against the SAP Business One **Service Layer**. The bundled references cover
+stable integration patterns for B1 10.0 plus explicit feature-pack boundaries; they are not a complete mirror of
+every entity/property/action in SAP's API reference.
+
+1. **Pin the client version** when it changes the answer. For new integrations prefer **OData v4** at `/b1s/v2`;
+   SAP deprecates OData v3 from FP 2405. Read `references/servicelayer/INDEX.md`, then
+   `references/servicelayer/service-layer-guide.md`.
+2. **Verify the surface, don't invent it.** For an exact entity, property, enum or action not named in the bundled
+   guide, check the client's `/b1s/v2/$metadata` (or SAP's current API reference) before emitting code. UDFs,
+   UDTs and UDOs are client-specific.
+3. **Authenticate and preserve the session**: `POST /b1s/v2/Login`, retain `B1SESSION`, and retain `ROUTEID` when
+   supplied for stickiness. The current API reference calls `B1SESSION` required and `ROUTEID` optional. End an
+   explicit session with `POST /b1s/v2/Logout`; see the guide for timeout details.
+4. **Reads**: use `$select` to keep payloads narrow, `$filter` for predicates and the documented query options;
+   follow an OData next-link when Service Layer pages a collection. Use `$expand` only where metadata exposes the
+   navigation relationship.
+5. **Writes**: use the supported entity/action API (`POST`, `PATCH`, bound actions), never direct SQL against B1
+   tables. For read-modify-write flows, retain the ETag from the read and send `If-Match`; treat HTTP 412 as a
+   concurrency conflict to re-read and reconcile, not a blind retry.
+6. **`SQLQueries`**: read `references/servicelayer/sql-queries.md`. It is available from B1 10.0 FP 2011 and
+   supports named parameters, rejects DML, and deliberately rejects `select *` in the select list.
+7. **FP 2602 webhooks**: read `references/servicelayer/fp2602.md`. Do not propose Service Layer webhooks on an
+   earlier B1 version; FP 2602 introduces the feature and Webhook Messenger.
+8. **Deliver**: code/request examples plus a short verification note: B1 version, OData version, which reference
+   backed the protocol behaviour, and which exact entity/property names still require live `$metadata` confirmation.
+
+## 7. Gotchas (things a careful engineer still gets wrong)
 
 - **The schemas are B1 10.0 and 9.3 only.** Other releases and every client's user-defined tables and fields are
   absent; a column missing here isn't proof it's missing on the client's database. 9.3 to 10.0 added 246 tables,
@@ -196,12 +225,13 @@ this object library only, not the UI API, the Service Layer or DI Server. The re
 - **`BaseType` is two kinds**: the object number on `Document_Lines`, `InvBaseDocTypeEnum` (InventoryTransferRequest
   = 5) on `StockTransfer_Lines` (mistakes row 23).
 
-## 7. Layout
+## 8. Layout
 
 ```
 references/objects/      INDEX.md, object-types.md (the reconciled list)
 references/dictionary/   INDEX.md, 10.0/ and 9.3/ each with table-index.md + dict/<Module>.md (tables bundled by module)
 references/diapi/        INDEX.md, di-api-guide.md (how-to), common-mistakes.md, review-checklist.md, api/ (INDEX.md + members.md + classes-NN.md bundles), enums/ (INDEX.md + members.md + enums-NN.md bundles)
+references/servicelayer/ INDEX.md, service-layer-guide.md, sql-queries.md, fp2602.md
 scripts/                 maintenance only (compile the 10.0 schema and the DI API reference from the SDK's CHMs; fetch + compile the 9.3 schema) — never needed to answer
 evals/evals.json         test prompts per capability
 MAINTENANCE.md           how to refresh the object list, the schema or the DI API reference, add a source, add a capability
