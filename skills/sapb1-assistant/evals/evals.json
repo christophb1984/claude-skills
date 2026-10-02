@@ -132,6 +132,30 @@
       "capability": "DI API (architecture)",
       "prompt": "We have 40 near-identical C# classes that each connect to SAP, GetByKey a base document, copy header and lines, and Add. No tests. How should we restructure this so it is testable?",
       "expected_output": "Describes the build-then-commit layout from di-api-guide.md § 12: one ISapSession facade owning COM, posting logic producing a plain TargetDocument from a SourceDocument snapshot, one DocumentWriter replaying it in the order-sensitive sequence (DocObjectCode first on drafts, base reference before ItemCode, allocations before Lines.Add), declarative copy specs executed by one handler, a method registry with the name list pinned in a test, client profiles for series and user fields, a single exception type raised right after GetLastError, and characterisation tests written from the legacy code before migrating each class. Marks it as engineering practice rather than SAP guidance."
+    },
+    {
+      "id": 23,
+      "capability": "Service Layer (OData v4, session, ETag)",
+      "prompt": "We're on SAP B1 10.0 FP2602. Show a C# HttpClient pattern that logs in, reads open sales orders with only DocEntry, CardCode and DocTotal, then updates Comments on one order without overwriting a concurrent change.",
+      "expected_output": "Reads references/servicelayer/INDEX.md and service-layer-guide.md. Uses /b1s/v2 and POST Login, preserves B1SESSION (ROUTEID may also be retained but is not claimed mandatory), GETs Orders with $select and $filter, retains the returned ETag/@odata.etag, PATCHes the keyed order with If-Match, treats HTTP 412 as a concurrency conflict that requires re-read/reconcile, and logs out. Does not expose credentials/cookies and says exact members should be checked against the client's $metadata."
+    },
+    {
+      "id": 24,
+      "capability": "Service Layer (edge: OData v3 deprecation)",
+      "prompt": "For a new SAP B1 integration, should I start with /b1s/v1 because most old examples use it?",
+      "expected_output": "Uses the Service Layer reference and says /b1s/v1 is OData v3 while /b1s/v2 is OData v4. States that SAP deprecates OData v3 from FP2405 and makes v4 the primary protocol, while v3 remains for backward compatibility. Recommends v2 for new work and does not claim v1 has been removed."
+    },
+    {
+      "id": 25,
+      "capability": "Service Layer SQLQueries (safety and parameters)",
+      "prompt": "Create a Service Layer SQLQueries endpoint where callers can send any SQL, including UPDATEs, and filter orders by a minimum total.",
+      "expected_output": "Rejects the arbitrary-SQL/write design. Reads sql-queries.md: SQLQueries is available from 10.0 FP2011, SAP rejects DML such as UPDATE/INSERT/DELETE/ALTER, named parameters use a colon placeholder, and select * in the select list is rejected. Shows or recommends a named parameterised SELECT such as DocTotal > :docTotal and, as engineering practice, a small allowlisted query catalog rather than arbitrary SQL."
+    },
+    {
+      "id": 26,
+      "capability": "Service Layer (FP2602 webhooks)",
+      "prompt": "Can we stop polling SAP B1 for newly created sales orders and get notified instead? The system is on 10.0 FP2602.",
+      "expected_output": "Reads fp2602.md and states that Service Layer webhooks are available as of 10.0 FP2602, with Webhook Messenger. Describes enabling webhooks per company, creating an EventSubscriptions subscription for the relevant Orders event, and keeping version boundaries explicit. Treats the webhook as notification and recommends fetching authoritative object state through Service Layer when needed."
     }
   ]
 }
