@@ -28,6 +28,8 @@ V4 = '''<?xml version="1.0" encoding="utf-8"?>
   <EntityContainer Name="ServiceLayer">
    <EntitySet Name="Orders" EntityType="SAPB1.Document"><Annotation Term="Common.Label" String="Sales Order"/></EntitySet>
    <EntitySet Name="@CLIENT_UDO" EntityType="SAPB1.Document"/>
+   <ActionImport Name="CloseOrder" Action="SAPB1.Close"/>
+   <FunctionImport Name="Ping" Function="SAPB1.Ping" IncludeInServiceDocument="true"/>
   </EntityContainer>
  </Schema></edmx:DataServices>
 </edmx:Edmx>'''
@@ -47,7 +49,7 @@ class BuildServiceLayerRefTests(unittest.TestCase):
         src = self.root / "metadata.xml"
         out = self.root / "out"
         src.write_text(xml, encoding="utf-8")
-        counts = mod.build(src, out, "2026-10-03", "SAP Business One 10.0 FP 2602", "test snapshot",
+        counts = mod.build(src, out, "2026-10-03", "synthetic OData v4 fixture", "test snapshot",
                            [mod.re.compile(x) for x in excludes])
         return out, counts
 
@@ -58,12 +60,14 @@ class BuildServiceLayerRefTests(unittest.TestCase):
         self.assertEqual(counts["actions"], 1)
         self.assertEqual(counts["functions"], 1)
         self.assertEqual(counts["enums"], 1)
+        self.assertEqual(counts["operation_imports"], 2)
         self.assertIn("SAPB1.Document | EntityType | DocEntry", (out / "api" / "INDEX.md").read_text())
         self.assertIn("OpenType: true", (out / "api" / "types-01.md").read_text())
         self.assertIn("SAPB1.ColumnName=ItemCode", (out / "api" / "members.md").read_text())
         self.assertIn("SAPB1.ValidValue=C", (out / "enums" / "members.md").read_text())
         self.assertIn("Action SAPB1.Close", (out / "operations" / "members.md").read_text())
         self.assertIn("Common.Label=Sales Order", (out / "entity-sets.md").read_text())
+        self.assertIn("CloseOrder | ActionImport | SAPB1.Close", (out / "operation-imports.md").read_text())
 
     def test_exclude_regex_removes_client_specific_names(self):
         out, counts = self.build(excludes=(r"@CLIENT_UDO",))
