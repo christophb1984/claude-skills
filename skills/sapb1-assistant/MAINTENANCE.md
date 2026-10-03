@@ -209,10 +209,12 @@ compact scalar annotations (for example SAP's label/table/column/value annotatio
 contains them). The raw metadata is maintenance input only and must not be committed.
 
 1. **Fetch from the exact client/version you mean to document.** Login normally, retain the Service Layer
-   cookies and save `GET /b1s/v2/$metadata` as an XML/EDMX file outside the repo. SAP also supports focused
-   annotated metadata queries; for example its guide documents
-   `$metadata?scope=entityset&annotation=labelWithField,labelWithTable&entityset=BusinessPartners&dependency=true`.
-   Use those when table/field/label annotations are useful, but do not mistake a focused response for the whole API.
+   cookies and save `GET /b1s/v2/$metadata` as an XML/EDMX file outside the repo. That plain OData v4 endpoint
+   is the source to use for an FP 2602 snapshot. **Do not use the newer annotation query options on FP 2602:**
+   SAP documents `scope=entityset`, `annotation=labelWithField,labelWithTable`, `entityset=...` and
+   `dependency=true` only from **10.0 FP 2608**. SAP also says that query-parameter response shape is mainly
+   for its B1 MCP Server sample and can change, so treat those FP 2608+ annotations as enrichment rather than
+   a compatibility contract. The builder can retain their scalar annotations when they are present.
 2. **Prefer a clean demo company.** A company can expose client-specific UDO/entity sets. `OpenType=true`
    supports dynamic properties such as UDFs, so UDF values are not a reliable discriminator. Never publish a
    customer's custom surface. If a clean company is unavailable, inspect names manually and use repeatable
