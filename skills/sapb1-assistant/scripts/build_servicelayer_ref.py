@@ -95,6 +95,8 @@ def parse(path: Path):
 
 def build(metadata: Path, out: Path, verified: str, label: str, source: str, excludes: list[re.Pattern[str]]):
     schemas = parse(metadata)
+    if out.exists() and any(out.iterdir()):
+        raise SystemExit(f"Output directory is not empty: {out}. Build into an empty scratch directory.")
     excluded: set[str] = set()
 
     def blocked(name: str) -> bool:
@@ -106,7 +108,7 @@ def build(metadata: Path, out: Path, verified: str, label: str, source: str, exc
     type_entries, type_rows, member_lines = [], [], []
     enum_entries, enum_rows, enum_member_lines = [], [], []
     op_entries, op_rows, op_member_lines = [], [], []
-    entity_sets = []
+    entity_sets, operation_imports = [], []
 
     for schema in schemas:
         ns = schema.attrib.get("Namespace", "")
@@ -175,7 +177,8 @@ def build(metadata: Path, out: Path, verified: str, label: str, source: str, exc
                 params = el.findall(q(EDM, "Parameter"))
                 bound = truth(el.attrib.get("IsBound"))
                 binding = params[0].attrib.get("Type", "") if bound and params else ""
-                ident = full + (f"({binding})" if binding else "")
+                signature_types = ",".join(p.attrib.get("Type", "") for p in params)
+                ident = f"{full}({signature_types})"
                 if blocked(ident):
                     continue
                 lines = [f"# {ident} ({kind})", ""]
@@ -202,7 +205,7 @@ def build(metadata: Path, out: Path, verified: str, label: str, source: str, exc
                 if anns:
                     lines += ["## Scalar annotations", ""] + [f"- {a}" for a in anns] + [""]
                 sig = ", ".join(f"{p.attrib.get('Name','')}:{p.attrib.get('Type','')}" for p in params)
-                op_member_lines.append(f"{kind} {ident}({sig}) -> {ret_type or 'void'}")
+                op_member_lines.append(f"{kind} {full}({sig}) -> {ret_type or 'void'}")
                 op_entries.append((ident, "\n".join(lines).rstrip() + "\n"))
                 op_rows.append(dict(name=ident, kind=kind, bound=bound, binding=binding, params=len(params), ret=ret_type))
 
@@ -217,10 +220,20 @@ def build(metadata: Path, out: Path, verified: str, label: str, source: str, exc
                                         container=f"{ns}.{cname}" if ns else cname,
                                         include=es.attrib.get("IncludeInServiceDocument", ""),
                                         bindings=bindings, anns=annotations(es)))
+            for import_kind, target_attr in (("ActionImport", "Action"), ("FunctionImport", "Function")):
+                for imp in container.findall(q(EDM, import_kind)):
+                    full = f"{ns}.{cname}/{imp.attrib['Name']}" if ns else f"{cname}/{imp.attrib['Name']}"
+                    if blocked(full):
+                        continue
+                    operation_imports.append(dict(name=imp.attrib["Name"], kind=import_kind,
+                                                  target=imp.attrib.get(target_attr, ""),
+                                                  entity_set=imp.attrib.get("EntitySet", ""),
+                                                  include=imp.attrib.get("IncludeInServiceDocument", ""),
+                                                  anns=annotations(imp)))
 
     for seq in (type_entries, enum_entries, op_entries):
         seq.sort(key=lambda x: x[0].lower())
-    for seq in (type_rows, enum_rows, op_rows, entity_sets):
+    for seq in (type_rows, enum_rows, op_rows, entity_sets, operation_imports):
         seq.sort(key=lambda x: x["name"].lower())
     for seq in (member_lines, enum_member_lines, op_member_lines):
         seq.sort(key=str.lower)
@@ -265,11 +278,18 @@ def build(metadata: Path, out: Path, verified: str, label: str, source: str, exc
         lines.append(f"| {es['name']} | {es['type']} | {es['container']} | {es['include']} | {binds} | {'; '.join(es['anns'])} |")
     (out / "entity-sets.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
+    lines = [provenance, "", "# Service Layer operation imports", "",
+             "| Import | Kind | Target operation | Entity set | Include in service document | Scalar annotations |",
+             "|---|---|---|---|---|---|"]
+    for imp in operation_imports:
+        lines.append(f"| {imp['name']} | {imp['kind']} | {imp['target']} | {imp['entity_set']} | {imp['include']} | {'; '.join(imp['anns'])} |")
+    (out / "operation-imports.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
     counts = {
         "schemas": len(schemas), "types": len(type_rows),
         "entity_types": sum(r["kind"] == "EntityType" for r in type_rows),
         "complex_types": sum(r["kind"] == "ComplexType" for r in type_rows),
-        "properties": len(member_lines), "entity_sets": len(entity_sets),
+        "properties": len(member_lines), "entity_sets": len(entity_sets), "operation_imports": len(operation_imports),
         "operations": len(op_rows), "actions": sum(r["kind"] == "Action" for r in op_rows),
         "functions": sum(r["kind"] == "Function" for r in op_rows),
         "enums": len(enum_rows), "enum_members": len(enum_member_lines), "excluded": len(excluded),
@@ -282,6 +302,7 @@ def build(metadata: Path, out: Path, verified: str, label: str, source: str, exc
              "| `api/members.md` | Flat `Type.Property : ODataType` index |",
              "| `api/types-NN.md` | Full bundled type entries |",
              "| `entity-sets.md` | Entity sets, containers, navigation bindings and scalar annotations |",
+             "| `operation-imports.md` | ActionImport/FunctionImport endpoint names mapped to operations |",
              "| `operations/INDEX.md` | Action/Function routing: binding type, parameters, return type, bundle location |",
              "| `operations/members.md` | Flat operation signatures |",
              "| `operations/operations-NN.md` | Full bundled operations |",
