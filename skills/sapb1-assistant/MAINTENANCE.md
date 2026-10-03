@@ -196,12 +196,45 @@ detected by their content (`VB_MARK` in the script), so check the warning count 
 
 ## Refresh the Service Layer references
 
-`references/servicelayer/` is hand-written prose summarised from SAP Help Portal pages (URLs in its `INDEX.md`);
-there is no builder script. The pages are JavaScript-rendered, so fetch them in a browser, not with curl. To
-refresh: re-read the pages the `INDEX.md` sources table names, check the guide's *Document History* page for
-revisions since the `verified` date (it lists new chapters per revision), and read the newest sequential API
-change log for feature-pack additions. Update the facts, the `verified` dates in every provenance header and
-the `INDEX.md` rows. Keep the folder a curated summary: never copy SAP's pages or the API reference wholesale.
+The hand-written files directly under `references/servicelayer/` summarise SAP Help Portal pages (URLs in
+their `INDEX.md`). Re-read those pages in a browser, check the guide's *Document History* for revisions since
+the `verified` date and read the newest sequential API change log. Update the facts and provenance dates; keep
+the prose curated and never copy SAP's pages or API reference wholesale.
+
+### Build a fuller reference from OData v4 `$metadata`
+
+`scripts/build_servicelayer_ref.py` compiles an OData v4 CSDL metadata snapshot into bundled, grep-friendly
+references for EntityType/ComplexType properties, entity sets, Actions/Functions and EnumTypes. It also retains
+compact scalar annotations (for example SAP's label/table/column/value annotations when the requested metadata
+contains them). The raw metadata is maintenance input only and must not be committed.
+
+1. **Fetch from the exact client/version you mean to document.** Login normally, retain the Service Layer
+   cookies and save `GET /b1s/v2/$metadata` as an XML/EDMX file outside the repo. SAP also supports focused
+   annotated metadata queries; for example its guide documents
+   `$metadata?scope=entityset&annotation=labelWithField,labelWithTable&entityset=BusinessPartners&dependency=true`.
+   Use those when table/field/label annotations are useful, but do not mistake a focused response for the whole API.
+2. **Prefer a clean demo company.** A company can expose client-specific UDO/entity sets. `OpenType=true`
+   supports dynamic properties such as UDFs, so UDF values are not a reliable discriminator. Never publish a
+   customer's custom surface. If a clean company is unavailable, inspect names manually and use repeatable
+   `--exclude-regex` filters for known custom entities; record the filters in the generated `INDEX.md`.
+3. **Build** into a scratch output first:
+   `python scripts/build_servicelayer_ref.py <metadata.edmx> <out> --verified YYYY-MM-DD --label "SAP Business One 10.0 FP 2602" --source "Service Layer /b1s/v2/$metadata"`.
+   The builder rejects non-v4 metadata, bundles entries at about 150 KB, and writes indexes with exact
+   File/Line/Lines ranges so runtime lookup does not load whole bundles.
+4. **Run the builder tests**:
+   `python scripts/test_build_servicelayer_ref.py`.
+   They cover EntityType/ComplexType, entity sets, bound/global operations, enums, scalar annotations,
+   custom-name exclusion and rejecting v3 metadata.
+5. **Sanity-check the real snapshot before committing generated output**: inspect the counts; confirm well-known
+   entities/types such as Orders/Document, BusinessPartners/BusinessPartner and DocumentLine; confirm at least one
+   bound action and one global operation; inspect enum members; grep the generated files for company-specific
+   prefixes/names; and verify no credentials, hostnames or company database names are present in provenance.
+6. **Diff feature packs as data, not assumptions.** When a later FP is captured, compare generated entity sets,
+   properties, operation signatures and enum members against the previous snapshot. Keep older snapshots while
+   clients still run them and state the exact source FP in each folder's provenance.
+7. **Only after a reviewed snapshot is committed**, add it to `references/servicelayer/INDEX.md` and route exact
+   entity/property/action questions to it from `SKILL.md`. Until then, the current curated Service Layer guide
+   remains the runtime source and exact members still require live `$metadata` confirmation.
 
 ## Add a capability
 
@@ -211,9 +244,9 @@ the `INDEX.md` rows. Keep the folder a curated summary: never copy SAP's pages o
 3. Add at least two evals to `evals/evals.json` (one typical, one edge case).
 4. If the new domain needs a new trigger-phrase family, adjust the description within the 1024 cap.
 
-Planned capabilities, in no fixed order: a UI API reference (the SDK also ships `REFUI.chm`), a fuller Service
-Layer entity/action reference beyond the current curated guide, version and upgrade guidance, how-to procedures,
-and schema dictionaries for releases newer than 10.0 when their SDK help is available.
+Planned capabilities, in no fixed order: a UI API reference (the SDK also ships `REFUI.chm`), a reviewed
+Service Layer entity/action reference generated from versioned `$metadata` snapshots, version and upgrade
+guidance, how-to procedures, and schema dictionaries for releases newer than 10.0 when their SDK help is available.
 
 ## Validate
 
