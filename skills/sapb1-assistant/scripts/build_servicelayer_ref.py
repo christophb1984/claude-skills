@@ -87,11 +87,13 @@ def parse(path: Path):
 
 
 def build(metadata: Path, out: Path, verified: str, label: str, source: str, excludes: list[re.Pattern[str]],
-          max_bytes: int = MAX_BYTES):
+          property_excludes: list[re.Pattern[str]] | None = None, max_bytes: int = MAX_BYTES):
     schemas = parse(metadata)
     if out.exists() and any(out.iterdir()):
         raise SystemExit(f"Output directory is not empty: {out}. Build into an empty scratch directory.")
     excluded: set[str] = set()
+    excluded_properties: set[str] = set()
+    property_excludes = property_excludes or []
     ool = collect_out_of_line(schemas)
 
     def blocked(name: str) -> bool:
@@ -113,7 +115,16 @@ def build(metadata: Path, out: Path, verified: str, label: str, source: str, exc
                 if blocked(full):
                     continue
                 keys = [x.attrib.get("Name", "") for x in el.findall(f"{q(EDM,'Key')}/{q(EDM,'PropertyRef')}")]
-                props, navs = el.findall(q(EDM, "Property")), el.findall(q(EDM, "NavigationProperty"))
+                raw_props = el.findall(q(EDM, "Property"))
+                props = []
+                for p in raw_props:
+                    prop_name = p.attrib.get("Name", "")
+                    target = f"{full}/{prop_name}"
+                    if any(rx.search(prop_name) or rx.search(target) for rx in property_excludes):
+                        excluded_properties.add(target)
+                        continue
+                    props.append(p)
+                navs = el.findall(q(EDM, "NavigationProperty"))
                 lines = [f"# {full} ({kind})", ""]
                 for text in ([f"BaseType: {el.attrib['BaseType']}"] if el.attrib.get("BaseType") else []) + \
                             (["Abstract: true"] if truth(el.attrib.get("Abstract")) else []) + \
@@ -287,7 +298,8 @@ def build(metadata: Path, out: Path, verified: str, label: str, source: str, exc
         "properties": len(member_lines), "entity_sets": len(entity_sets), "operation_imports": len(operation_imports),
         "operations": len(op_rows), "actions": sum(r["kind"] == "Action" for r in op_rows),
         "functions": sum(r["kind"] == "Function" for r in op_rows),
-        "enums": len(enum_rows), "enum_members": len(enum_member_lines), "excluded": len(excluded),
+        "enums": len(enum_rows), "enum_members": len(enum_member_lines),
+        "excluded": len(excluded), "excluded_properties": len(excluded_properties),
     }
     namespaces = ", ".join(s.attrib.get("Namespace", "") for s in schemas if s.attrib.get("Namespace"))
     lines = [provenance, "", "# Service Layer generated metadata reference", "",
@@ -307,11 +319,13 @@ def build(metadata: Path, out: Path, verified: str, label: str, source: str, exc
     lines += [f"- {k}: {v}" for k, v in counts.items()]
     lines += ["", "## Scope", "",
               "- This is a snapshot of one Service Layer OData v4 metadata document; another feature pack can expose a different surface.",
-              "- `OpenType=true` permits dynamic properties such as UDFs; those dynamic properties are not enumerated here.",
+              "- A company can expose UDF properties explicitly in `$metadata`, including on `OpenType=true` types. Use property exclusion filters for a shared snapshot when the source company contains customer UDFs.",
               "- A company can expose client-specific UDO/entity sets. Prefer a clean demo company or review/exclude custom names before committing a shared reference.",
               "- Core CSDL and compact scalar annotations (inline and out-of-line `Annotations Target=`) are extracted; complex annotation expression trees remain in the source metadata."]
     if excludes:
-        lines += ["", "## Exclusion filters", ""] + [f"- `{rx.pattern}`" for rx in excludes]
+        lines += ["", "## Exclusion filters", ""] + [f"- generated name: `{rx.pattern}`" for rx in excludes]
+    if property_excludes:
+        lines += ["", "## Property exclusion filters", ""] + [f"- property/name target: `{rx.pattern}`" for rx in property_excludes]
     (out / "INDEX.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     return counts
 
@@ -324,12 +338,16 @@ def main() -> None:
     ap.add_argument("--label", required=True, help='e.g. "SAP Business One 10.0 FP 2602"')
     ap.add_argument("--source", default="local /b1s/v2/$metadata snapshot", help="provenance text; never include credentials")
     ap.add_argument("--exclude-regex", action="append", default=[], help="repeatable regex matched against fully-qualified generated names")
+    ap.add_argument("--exclude-property-regex", action="append", default=[],
+                    help="repeatable regex matched against property names and fully-qualified Type/Property targets")
     ap.add_argument("--max-bytes", type=int, default=MAX_BYTES, help="bundle size before a bundle file is split")
     args = ap.parse_args()
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", args.verified):
         raise SystemExit("--verified must be YYYY-MM-DD")
     counts = build(args.metadata, args.out, args.verified, args.label, args.source,
-                   [re.compile(x) for x in args.exclude_regex], args.max_bytes)
+                   [re.compile(x) for x in args.exclude_regex],
+                   [re.compile(x) for x in args.exclude_property_regex],
+                   args.max_bytes)
     print("Built Service Layer metadata reference:")
     for k, v in counts.items():
         print(f"  {k}: {v}")
