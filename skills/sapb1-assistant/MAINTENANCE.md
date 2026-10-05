@@ -220,20 +220,24 @@ contains them). The raw metadata is maintenance input only and must not be commi
    `dependency=true` only from **10.0 FP 2608**. SAP also says that query-parameter response shape is mainly
    for its B1 MCP Server sample and can change, so treat those FP 2608+ annotations as enrichment rather than
    a compatibility contract. The builder can retain their scalar annotations when they are present.
-2. **Prefer a clean demo company.** A company can expose client-specific UDO/entity sets. `OpenType=true`
-   supports dynamic properties such as UDFs, so UDF values are not a reliable discriminator. Never publish a
-   customer's custom surface. If a clean company is unavailable, inspect names manually and use repeatable
-   `--exclude-regex` filters for known custom entities; record the filters in the generated `INDEX.md`.
+2. **Prefer a clean demo company.** A company can expose client-specific UDO/entity sets **and can explicitly
+   enumerate UDF properties in `$metadata`, including on `OpenType=true` types**. The first real FP 2602
+   snapshot tested on 2026-10-05 did both. Never publish a customer's custom surface. If a clean company is
+   unavailable, inspect names manually, use repeatable `--exclude-regex` filters for known custom entities and
+   `--exclude-property-regex '^U_'` (or a reviewed narrower pattern) for customer UDFs; the generated
+   `INDEX.md` records both filter families.
 3. **Build** into a scratch output first:
    `python scripts/build_servicelayer_ref.py <metadata.edmx> <out> --verified YYYY-MM-DD --label "SAP Business One 10.0 FP 2602" --source "Service Layer /b1s/v2/$metadata"`.
    The builder rejects non-v4 metadata, bundles entries through the shared `bundle_util.py` (about 1 MB per
    bundle, `--max-bytes` to change) and writes indexes with exact File/Line/Lines ranges so runtime lookup
    does not load whole bundles. It reads scalar annotations both inline and from out-of-line
-   `<Annotations Target=...>` blocks; check the first real FP 2608+ snapshot to see which form SAP emits.
+   `<Annotations Target=...>` blocks. The first real **FP 2602** snapshot tested on 2026-10-05 contained
+   inline annotations only (no out-of-line `Annotations` blocks); keep support for both because CSDL permits
+   both and later feature packs may differ.
 4. **Run the builder tests**:
    `python scripts/test_build_servicelayer_ref.py`.
    They cover EntityType/ComplexType, entity sets, bound/global operations, enums, scalar annotations,
-   custom-name exclusion and rejecting v3 metadata.
+   custom-name exclusion, property/UDF exclusion and rejecting v3 metadata.
 5. **Sanity-check the real snapshot before committing generated output**: inspect the counts; confirm well-known
    entities/types such as Orders/Document, BusinessPartners/BusinessPartner and DocumentLine; confirm at least one
    bound action and one global operation; inspect enum members; grep the generated files for company-specific
