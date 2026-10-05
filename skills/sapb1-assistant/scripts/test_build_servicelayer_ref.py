@@ -18,6 +18,7 @@ V4 = '''<?xml version="1.0" encoding="utf-8"?>
   </EnumType>
   <ComplexType Name="DocumentLine" OpenType="true">
    <Property Name="ItemCode" Type="Edm.String"><Annotation Term="SAPB1.ColumnName" String="ItemCode"/></Property>
+   <Property Name="U_ClientField" Type="Edm.String"/>
   </ComplexType>
   <EntityType Name="Document" OpenType="true"><Key><PropertyRef Name="DocEntry"/></Key>
    <Property Name="DocEntry" Type="Edm.Int32" Nullable="false"/>
@@ -47,12 +48,13 @@ class BuildServiceLayerRefTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def build(self, xml=V4, excludes=()):
+    def build(self, xml=V4, excludes=(), property_excludes=()):
         src = self.root / "metadata.xml"
         out = self.root / "out"
         src.write_text(xml, encoding="utf-8")
         counts = mod.build(src, out, "2026-10-03", "synthetic OData v4 fixture", "test snapshot",
-                           [mod.re.compile(x) for x in excludes])
+                           [mod.re.compile(x) for x in excludes],
+                           [mod.re.compile(x) for x in property_excludes])
         return out, counts
 
     def test_builds_types_sets_operations_and_enums(self):
@@ -78,6 +80,14 @@ class BuildServiceLayerRefTests(unittest.TestCase):
         self.assertEqual(counts["excluded"], 1)
         self.assertNotIn("@CLIENT_UDO", (out / "entity-sets.md").read_text())
         self.assertIn("@CLIENT_UDO", (out / "INDEX.md").read_text())
+
+    def test_exclude_property_regex_removes_client_udfs(self):
+        out, counts = self.build(property_excludes=(r"^U_",))
+        self.assertEqual(counts["excluded_properties"], 1)
+        members = (out / "api" / "members.md").read_text()
+        self.assertIn("SAPB1.DocumentLine.ItemCode", members)
+        self.assertNotIn("U_ClientField", members)
+        self.assertIn("property/name target: `^U_`", (out / "INDEX.md").read_text())
 
     def test_index_ranges_point_at_entries(self):
         out, _ = self.build()
